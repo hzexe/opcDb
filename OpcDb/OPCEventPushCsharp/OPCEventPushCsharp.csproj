@@ -32,6 +32,7 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.ServiceModel" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
@@ -45,11 +46,20 @@
     <Compile Include="Package\IEventPack.cs" />
     <Compile Include="Package\IOpcReference.cs" />
     <Compile Include="Package\IOpcTag.cs" />
-    <Compile Include="Package\Ivalue.cs" />
-    <Compile Include="Package\IValueChanged!1.cs" />
-    <Compile Include="Package\IValues.cs" />
-    <Compile Include="Package\SetValuePack!1.cs" />
+    <Compile Include="Package\ITagName.cs" />
+    <Compile Include="Package\IValueChanged.cs" />
+    <Compile Include="Package\IValuesChanged.cs" />
+    <Compile Include="Package\OPC\ConnctionChanged.cs" />
+    <Compile Include="Package\OPC\EventPack.cs" />
+    <Compile Include="Package\OPC\OpcReference.cs" />
+    <Compile Include="Package\OPC\OpcTag.cs" />
+    <Compile Include="Package\OPC\ValueChanged.cs" />
+    <Compile Include="Package\OPC\Values.cs" />
+    <Compile Include="Package\OPC\ValuesChanged.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Graph1.dgml" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

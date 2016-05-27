@@ -8,8 +8,12 @@ using System.Threading.Tasks;
 
 namespace Syncer.opc.Pack
 {
+    /// <summary>
+    /// tag改变
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
     [DataContract]
-    public class ValueChanged<T> : EventPack, IValueChanged<T>, Ivalue
+    public class ValueChanged<T> :  IValueChanged<T>, ITagName where T :IComparable
     {
         [DataMember]
         public string tagName { get; set; }

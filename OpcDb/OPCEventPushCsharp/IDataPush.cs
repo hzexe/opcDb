@@ -14,9 +14,13 @@
         [OperationContract(IsOneWay =true,IsTerminating =false,ProtectionLevel =System.Net.Security.ProtectionLevel.None)]
         void connectChanged(IConnectionChanged desc);
 
-
+        /*
         [OperationContract(IsOneWay = true, IsTerminating = false, ProtectionLevel = System.Net.Security.ProtectionLevel.None)]
         void itemDataChanged(IEventPack newValue);
+        */
+
+        [OperationContract(IsOneWay = true, IsTerminating = false, ProtectionLevel = System.Net.Security.ProtectionLevel.None)]
+        void OpcValuesChanged<T>(IValuesChanged<T> cs) where T :IComparable;
 
         [OperationContract(IsOneWay = true, IsTerminating = false, ProtectionLevel = System.Net.Security.ProtectionLevel.None)]
         void opcReferenceReady(IOpcReference reference);
@@ -26,7 +30,7 @@
         void setArguments(string arguments);
 
         [OperationContract(IsOneWay = true, IsTerminating = false, ProtectionLevel = System.Net.Security.ProtectionLevel.None)]
-        void setReNewValueCallBack(Func<Ivalue, bool> callback);
+        void setReNewValueCallBack<T>(Func<IValuesChanged<T>, bool> callback) where T : IComparable;
     }
 }
 

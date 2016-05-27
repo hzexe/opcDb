@@ -10,14 +10,15 @@ using System.Data;
 using System.Data.Entity;
 using System.Reflection;
 using System.Diagnostics;
+using Syncer.opc.Pack;
 
 namespace Syncer.EventAction
 {
     public class DbPush : IDataPush
     {
         string dbconfigname;
-        object oldrecord;
-        Func<Ivalue, bool> valueChangedCallback;
+        object oldrecord;   //最近一次数据记录,用来比较数据是否发生改变
+        Func<IValuesChanged<IComparable>, bool> valueChangedCallback;
         object lockobj = new object();
         private static readonly log4net.ILog log = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
@@ -57,7 +58,7 @@ namespace Syncer.EventAction
             if (null == oldrecord || null == valueChangedCallback) return;
             MysqlContext db = new MysqlContext(dbconfigname);
             var ps = MysqlContext.plcvalue.GetProperties(); //所有属性
-            Dictionary<string, object> changeddic = new Dictionary<string, object>();   //改变的值的字典
+            Dictionary<string, IComparable> changeddic = new Dictionary<string, IComparable>();   //改变的值的字典
             object newobject = null;
             try
             {
@@ -79,85 +80,57 @@ namespace Syncer.EventAction
                 if (!p.Name.Equals("id"))
                 {
                     var q = new FastReflection.FastProperty(p);
-                    var v1 = q.Get(newobject);
-                    var v2 = q.Get(oldrecord);
-                    if ((null != v1 && !v1.Equals(v2)) || (null == v1 && null != v2) || !v1.Equals(v2))
+                    var v1 = (IComparable)q.Get(newobject);
+                    var v2 = (IComparable)q.Get(oldrecord);
+                    if (v1.CompareTo(v2) != 0)
                     {
                         changeddic.Add(p.Name, v1);
-                        
                     }
                     else
                     {
-                       // log.DebugFormat("检测值是否改变{0}")
+                        // log.DebugFormat("检测值是否改变{0}")
                     }
                 }
             });
             if (changeddic.Count > 0)
             {
                 log.DebugFormat("有{0}项值的改变", changeddic.Count);
+                IValuesChanged<IComparable> ivc = new ValuesChanged<IComparable>(changeddic.Count);
                 lock (lockobj)
                 {
                     oldrecord = newobject;
                     changeddic.ToList().ForEach(kv =>
                     {
-                        var instance = (EventPush.Package.Ivalue)Activator.CreateInstance(typeof(SetValuePack<>).MakeGenericType(kv.Value.GetType()));
+                        //var instance = (EventPush.Package.ITagName)Activator.CreateInstance(typeof(SetValuePack<>).MakeGenericType(kv.Value.GetType()));
                         db = new MysqlContext(dbconfigname);
                         try
                         {
-                            instance.tagName = db.TagColPairs.First(t => t.colName.Equals(kv.Key)).tagName;
-                            new FastReflection.FastProperty(instance.GetType().GetProperty("value")).Set(instance, kv.Value);
+                            IValueChanged<IComparable> vc = new ValueChanged<IComparable>();
+                            vc.tagName = db.TagColPairs.First(t => t.colName.Equals(kv.Key)).tagName;
+                            vc.value = kv.Value;
+                            ivc.values.Add(vc);
+                            // instance.tagName = db.TagColPairs.First(t => t.colName.Equals(kv.Key)).tagName;
+                            // new FastReflection.FastProperty(instance.GetType().GetProperty("value")).Set(instance, kv.Value);
                         }
-                        catch
+                        catch(Exception ex)
                         {
+                            log.Warn("数据库值改变,创建改变包时失败",ex);
                             return;
                         }
                         finally
                         {
                             db.Dispose();
                         }
-                        valueChangedCallback.Invoke(instance);
+                        
                     });
                 }//end lock
+                valueChangedCallback.Invoke(ivc);
             }
         }
 
         public void connectChanged(IConnectionChanged desc)
         {
             //什么也不做
-        }
-
-        public void itemDataChanged(IEventPack newValue)
-        {
-            //newValue 是个 IValueChanged 的泛型对象,同时也实现Ivalue
-            MysqlContext db = new MysqlContext(dbconfigname);
-            string tagname = ((Ivalue)newValue).tagName;
-            try
-            {
-                //获得列名
-                var colname = db.TagColPairs.First(tcp => tcp.tagName.Equals(tagname)).colName;
-                PropertyInfo p = MysqlContext.plcvalue.GetProperty(colname);    //entity类型
-                PropertyInfo p_v = newValue.GetType().GetProperty("value");     //泛型的
-                object v = new FastReflection.FastProperty(p_v).Get(newValue);// p_v.GetValue(newValue); //值
-                int changed;
-                lock (lockobj)
-                {
-                    changed=db.Database.ExecuteSqlCommand("update plc_value set "+ colname + "=@a", 
-                        new MySql.Data.MySqlClient.MySqlParameter("@a", v));
-
-                    oldrecord = getFirstRecord();
-                    //new FastReflection.FastProperty(p).Set(oldrecord, v);
-                    //changed = db.SaveChanges();
-                }
-                Debug.WriteLine("更新了" + changed);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
-            finally
-            {
-                db.Dispose();
-            }
         }
 
         public void opcReferenceReady(IOpcReference reference)
@@ -168,10 +141,6 @@ namespace Syncer.EventAction
 "EF_DynamicModelAssembly",
 "DynamicModule",
 "plc_value");
-
-            //Type[] types = new Type[] { typeof(System.ComponentModel.DataAnnotations.KeyAttribute) };
-            //Type[][] ts = new Type[][] { types };
-
             DynamicType.CreateAutoImplementedProperty(builder, "id", typeof(int));  //添加主键
 
             //TagColPair
@@ -186,14 +155,15 @@ namespace Syncer.EventAction
                 //value.GetType().isi
                 //Nullable
                 Type ptype = reference.OpcTagList[i].type;
+                /*
                 if (!ptype.IsClass && !ptype.IsInterface)
                 {
                     //说明是值类型,设为可为空的
                     ptype = typeof(Nullable<>).MakeGenericType(reference.OpcTagList[i].type);
                 }
+                */
                 DynamicType.CreateAutoImplementedProperty(builder, conname, ptype);
             }
-
             MysqlContext.plcvalue = builder.CreateType();       //动态entity类型
             MysqlContext.initeddata = tplist;                   //对应的表
             MysqlContext db = new MysqlContext(dbconfigname);
@@ -203,7 +173,7 @@ namespace Syncer.EventAction
             }
             catch (Exception ex)
             {
-                log.Warn("数据变化 操作数据库失败",ex);
+                log.Warn("数据变化 操作数据库失败", ex);
                 Console.WriteLine("数据变化 操作数据库失败");
             }
             finally
@@ -217,9 +187,46 @@ namespace Syncer.EventAction
             dbconfigname = arguments;
         }
 
-        public void setReNewValueCallBack(Func<Ivalue, bool> callback)
+        public void setReNewValueCallBack<T>(Func<IValuesChanged<T>, bool> callback) where T : IComparable
         {
-            this.valueChangedCallback = callback;
+            this.valueChangedCallback = (Func<IValuesChanged<IComparable>, bool>)callback;
+        }
+
+        public void OpcValuesChanged<T>(IValuesChanged<T> cs) where T : IComparable
+        {
+            if (null == cs || cs.values == null || cs.values.Count == 0) return;
+            MysqlContext db = new MysqlContext(dbconfigname);
+            MySql.Data.MySqlClient.MySqlParameter[] pars = new MySql.Data.MySqlClient.MySqlParameter[cs.values.Count];
+            StringBuilder sb = new StringBuilder("update plc_value set ");
+            try
+            {
+                for (int i = 0; i < cs.values.Count; i++)
+                {
+                    var x = cs.values[i];
+                    var colname = db.TagColPairs.First(tcp => tcp.tagName.Equals(x.tagName)).colName;
+                    var par = "@p" + i;
+                    sb.AppendFormat("{0}={1},", colname, par);
+                    pars[i] = new MySql.Data.MySqlClient.MySqlParameter(par, x.value);
+                }
+                sb.Remove(sb.Length - 1, 1);    //去掉最后的逗号
+                string sql = sb.ToString();
+
+                int changed;
+                lock (lockobj)
+                {
+                    changed = db.Database.ExecuteSqlCommand(sql, pars);
+                    oldrecord = getFirstRecord();
+                }
+                Debug.WriteLine("更新了" + changed);
+            }
+            catch (Exception ex)
+            {
+                log.Warn("发生改变", ex);
+            }
+            finally
+            {
+                db.Dispose();
+            }
         }
     }
 }

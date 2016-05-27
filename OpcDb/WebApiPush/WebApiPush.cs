@@ -52,7 +52,7 @@ namespace Syncer.EventAction
             this.url = new Uri( arguments);
         }
 
-        public void setReNewValueCallBack(Func<Ivalue,bool> callback) 
+        public void setReNewValueCallBack(Func<ITagName,bool> callback) 
         {
             //设置的，这个不去实现
 

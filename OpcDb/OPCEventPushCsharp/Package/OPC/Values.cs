@@ -8,21 +8,16 @@ using System.Threading.Tasks;
 
 namespace Syncer.opc.Pack
 {
+    /*
     /// <summary>
-    /// tag类型包
+    /// 所有值
     /// </summary>
     [DataContract]
-    public class OpcTag : IOpcTag, Ivalue
+    [KnownTypeAttribute(typeof(ValueChanged<>))]
+    public class Values : EventPack, IValues
     {
-        /// <summary>
-        /// 完整名称
-        /// </summary>
         [DataMember]
-        public string tagName { get; set; }
-        /// <summary>
-        /// 类型
-        /// </summary>
-        [DataMember]
-        public Type type { get; set; }
+        public List<ITagName> values { get; set; }
     }
+    */
 }

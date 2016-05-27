@@ -113,15 +113,39 @@ namespace WOLEI.WanXiang.Model.ConfigSectionHandler
         {
             switch (Enumeration)
             {
+                case 3:
+                    //long
+                    return typeof(long);
+                case 2:
+                    //long
+                    return typeof(short);
+                case 5:
+                    //double
+                    return typeof(double);
+                case 7:
+                    //date
+                    return typeof(DateTime);
                 case 18:
+                    //word bcd
                     return typeof(int);
+                case 16:
+                    //char
+                    return typeof(byte);
+                case 17:
+                    //byte
+                    return typeof(byte);
                 case 11:
+                    //Boolean
                     return typeof(bool);
                 case 4:
                     return typeof(float);
+                case 8:
+                    //string
+                    return typeof(string);
+                case 19:
+                    //dword lbcd
+                    return typeof(Int64);
                 default:
-                    if ((int)Enumeration == 19)
-                        return typeof(Int32);
                     log.FatalFormat("没有定义类型{0}", Enumeration);
                     Console.WriteLine("有未知的tag类型");
                     throw new NotImplementedException("未知类型");

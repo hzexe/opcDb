@@ -4,7 +4,7 @@
     /// <summary>
     /// opc和tag
     /// </summary>
-    public interface IOpcTag : Ivalue
+    public interface IOpcTag : ITagName
     {
         Type type { get; set; }
     }

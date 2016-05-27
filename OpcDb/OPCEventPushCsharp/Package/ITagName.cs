@@ -2,9 +2,9 @@
 {
     using System;
     /// <summary>
-    /// 
+    /// tagName
     /// </summary>
-    public interface Ivalue
+    public interface ITagName
     {
         string tagName { get; set; }
     }

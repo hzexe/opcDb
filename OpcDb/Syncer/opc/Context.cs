@@ -1,4 +1,5 @@
 ﻿using Syncer.EventPush.Package;
+using Syncer.opc.Pack;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
@@ -13,8 +14,8 @@ namespace Syncer.opc
 {
     public class Context
     {
-        protected dynamic _opcServer;
-        protected dynamic _opcGroup;
+        protected OPCAutomation.OPCServer _opcServer;
+        protected OPCAutomation.OPCGroup _opcGroup;
         protected static OPCTagSection ss;
         /// <summary>
         /// 推送方式对象的集合
@@ -64,8 +65,9 @@ namespace Syncer.opc
         public Context()
         {
             //var type=Type.GetTypeFromProgID("OPC.Automation");
-            var type = Type.GetTypeFromCLSID(new Guid("28E68F9A-8D75-11D1-8DC3-3C302A000000"));
-            _opcServer = Activator.CreateInstance(type);
+            //var type = Type.GetTypeFromCLSID(new Guid("28E68F9A-8D75-11D1-8DC3-3C302A000000"));
+            //_opcServer = Activator.CreateInstance(type);
+            _opcServer = new OPCAutomation.OPCServerClass();
             opcConnctionChangedEvent += Station_opcConnctionChangedEvent;
             /*
             if (!connectOPCAsync().Result)
@@ -74,7 +76,7 @@ namespace Syncer.opc
             }
             */
             connectOPCAsync();
-            EventPushList.ForEach(pl => pl.setReNewValueCallBack(clientChangedValue));
+            EventPushList.ForEach(pl => pl.setReNewValueCallBack(new Func<IValuesChanged<IComparable>, bool>(  clientChangedValue)));
         }
 
         /// <summary>
@@ -82,25 +84,35 @@ namespace Syncer.opc
         /// </summary>
         /// <param name="vp">是实现ISetValuePack泛型的接口</param>
         /// <returns></returns>
-        private bool clientChangedValue(Syncer.EventPush.Package.Ivalue vp)
+        private bool clientChangedValue(Syncer.EventPush.Package.IValuesChanged<IComparable> vsc)
         {
-            log.DebugFormat("数据库值改变需要更改到opc,tagname是{0}", vp.tagName);
-            var tag = (from TagConfigElement item in ss.tags where item.name.Equals(vp.tagName) select item).FirstOrDefault();
-            if (null == tag) return false;
-
-            object value = new FastReflection.FastProperty(vp.GetType().GetProperty("value")).Get(vp);
-            log.DebugFormat("数据库值改变需要更改到opc,tagname是{0},值是{1}", vp.tagName,value);
-            // object value = ((dynamic)vp).value;
-            try
-            {
-                updateDataToOPCServer(tag, value);
-            }
-            catch (Exception ex)
-            {
-                log.Warn("更新数据失败", ex);
-                return false;
-            }
+            log.DebugFormat("数据库值改变需要更改到opc,tagname是{0}个", vsc.values.Count);
+            Dictionary<int, object> dic = new Dictionary<int, object>();
+            vsc.values.ForEach(vp => {
+                var tag = (from TagConfigElement item in ss.tags where item.name.Equals(vp.tagName) select item).FirstOrDefault();
+                if (null == tag) return;
+                log.DebugFormat("数据库值改变需要更改到opc,tagname是{0},值是{1}", vp.tagName, vp.value);
+                dic.Add(tag.ServerHandle, vp.value);
+            });
+            updateDataToOPCServer(dic);
             return true;
+        }
+
+        protected void updateDataToOPCServer(IDictionary<int, object> dic)
+        {
+            if (null == dic || dic.Count == 0) return;
+            var keylist = dic.Keys.ToList();
+            keylist.Insert(0, 0);   //因为下标从1开始,开始插入空的
+            var valuelist = dic.Values.ToList();
+            valuelist.Insert(0, null);   //因为下标从1开始,开始插入空的
+
+            var ArrServerHandle = (Array)keylist.ToArray();
+            var ArrLocalValue = (Array)valuelist.ToArray();
+            var ArrError = (Array)new Int32[dic.Count];
+            int a, b;
+            a = DateTime.Now.Millisecond;
+            b = a;
+            _opcGroup.AsyncWrite(dic.Count, ref ArrServerHandle, ref ArrLocalValue, out ArrError, a, out b);
         }
 
 
@@ -112,7 +124,7 @@ namespace Syncer.opc
         /// <param name="newValue">新的值</param>
         protected void updateDataToOPCServer<T>(ITag tag, T newValue)
         {
-            var ArrServerHandle = (Array)new Int32[] { 0, tag.ServerHandle };
+            var ArrServerHandle = (Array)new int[] { 0, tag.ServerHandle };
             var ArrLocalValue = (Array)new object[] { default(T), newValue };
             var ArrError = (Array)new Int32[] { 0 };
             int a, b;
@@ -136,10 +148,10 @@ namespace Syncer.opc
                 // _opcServer.OPCGroups.Remove(groupName);
 
                 _opcGroup = _opcServer.OPCGroups.Add(groupName);
-                _opcGroup.AsyncReadComplete += new DIOPCGroupEvent_AsyncReadCompleteEventHandler(_opcGroup_AsyncReadComplete);
+                _opcGroup.AsyncReadComplete += _opcGroup_AsyncReadComplete;
                 var test = _opcServer.OPCGroups;
-                _opcGroup.DataChange += new DIOPCGroupEvent_DataChangeEventHandler(_opcGroup_DataChange);
-                //_opcGroup.AsyncWriteComplete += new DIOPCGroupEvent_AsyncWriteCompleteEventHandler( _opcGroup_AsyncWriteComplete);
+                _opcGroup.DataChange += _opcGroup_DataChange;
+                _opcGroup.AsyncWriteComplete += _opcGroup_AsyncWriteComplete;
                 Array ClientHandles = new int[ss.tags.Count + 1]; //Array.CreateInstance
                 Array arr_error = new int[ss.tags.Count + 1];
                 {
@@ -195,10 +207,17 @@ namespace Syncer.opc
             }
         }
 
+        private void _opcGroup_AsyncWriteComplete(int TransactionID, int NumItems, ref Array ClientHandles, ref Array Errors)
+        {
+           
+        }
+
         protected virtual void _opcGroup_DataChange(int TransactionID, int NumItems, ref Array ClientHandles, ref Array ItemValues, ref Array Qualities, ref Array TimeStamps)
         {
             log.Info("_opcGroup_DataChange");
             if (NumItems == 0) return;
+            ValuesChanged<IComparable> vc = new ValuesChanged<IComparable>();
+
             //特别注意，下标是1，而不是0
             for (int i = 1; i <= NumItems; i++)
             {
@@ -208,17 +227,9 @@ namespace Syncer.opc
                 if (null == value) continue;
                 var opcitem = (from TagConfigElement item in ss.tags select item).Single(cuc => clientHandle == cuc.ClientHandle);
                 opcitem.setValue(value);
-                {
-                    var instance = (EventPush.Package.Ivalue)Activator.CreateInstance(typeof(Pack.ValueChanged<>).MakeGenericType(value.GetType()));
-                    instance.tagName = opcitem.name;
-                    var pi = instance.GetType().GetProperty("value");
-                    new FastReflection.FastProperty(pi).Set(instance, value);
-                    // ((dynamic)instance).value = value;
-                    var p = (Pack.EventPack)instance;
-                    log.DebugFormat("{0}的值改为：{1}",opcitem.name, value);
-                    Parallel.ForEach(EventPushList, c => c.itemDataChanged(p));
-                }
+                vc.values.Add(new ValueChanged<IComparable>() { tagName = opcitem.name, value = (IComparable)value });
             }
+            Parallel.ForEach(EventPushList, c => c.OpcValuesChanged(vc));
         }
 
         protected virtual void _opcGroup_AsyncReadComplete(int TransactionID, int NumItems, ref Array ClientHandles, ref Array ItemValues, ref Array Qualities, ref Array TimeStamps, ref Array Errors)
