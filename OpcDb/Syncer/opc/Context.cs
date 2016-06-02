@@ -90,7 +90,7 @@ namespace Syncer.opc
         }
 
         /// <summary>
-        /// 
+        /// 插件提交的更新opc服务器的回调
         /// </summary>
         /// <param name="vp">是实现ISetValuePack泛型的接口</param>
         /// <returns></returns>
@@ -107,7 +107,10 @@ namespace Syncer.opc
             updateDataToOPCServer(dic);
             return true;
         }
-
+        /// <summary>
+        /// 处理要更新到server的tag数据
+        /// </summary>
+        /// <param name="dic">键是tag和ServerHandle,值是要更新的tag值的字典</param>
         protected void updateDataToOPCServer(IDictionary<int, object> dic)
         {
             if (null == dic || dic.Count == 0) return;
@@ -122,7 +125,6 @@ namespace Syncer.opc
             int a, b;
             a = DateTime.Now.Millisecond;
             b = a;
-
 
             var opcresult = new OpcUpdateResult(new AutoResetEvent(false));
             this.updateTransactionIDDic.AddOrUpdate(transactionID, opcresult, (aa, bb) => opcresult);
@@ -154,6 +156,7 @@ namespace Syncer.opc
         /// <typeparam name="T">值类型</typeparam>
         /// <param name="tag">要发送的控件</param>
         /// <param name="newValue">新的值</param>
+        [Obsolete("因为使用了批量更新,并且添加了更新的回调,此函数与其还会冲突",true)]
         protected void updateDataToOPCServer<T>(ITag tag, T newValue)
         {
             var ArrServerHandle = (Array)new int[] { 0, tag.ServerHandle };
