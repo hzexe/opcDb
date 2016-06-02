@@ -16,8 +16,18 @@ namespace Syncer.EventAction
 {
     public class DbPush : IDataPush
     {
+        /// <summary>
+        /// 数据连接参数
+        /// </summary>
         string dbconfigname;
+        /// <summary>
+        /// 内存保存的数据记录
+        /// </summary>
+        /// <remarks>它只在opc值改变时才改变</remarks>
         object oldrecord;   //最近一次数据记录,用来比较数据是否发生改变
+        /// <summary>
+        /// 数据库值改变时执行的委托
+        /// </summary>
         Func<IValuesChanged<IComparable>, bool> valueChangedCallback;
         object lockobj = new object();
         private static readonly log4net.ILog log = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
@@ -25,6 +35,7 @@ namespace Syncer.EventAction
 
         public DbPush()
         {
+            //定时轮询数据值是否发生改变
             System.Timers.Timer tmr = new System.Timers.Timer(500);
             tmr.Elapsed += Tmr_Elapsed;
             tmr.Start();
@@ -74,56 +85,52 @@ namespace Syncer.EventAction
                 db.Dispose();
             }
 
-
-            ps.ToList().ForEach(p =>
+            lock (lockobj)
             {
-                if (!p.Name.Equals("id"))
+                ps.ToList().ForEach(p =>
                 {
-                    var q = new FastReflection.FastProperty(p);
-                    var v1 = (IComparable)q.Get(newobject);
-                    var v2 = (IComparable)q.Get(oldrecord);
-                    if (v1.CompareTo(v2) != 0)
+                    if (!p.Name.Equals("id"))
                     {
-                        changeddic.Add(p.Name, v1);
+                        var q = new FastReflection.FastProperty(p);
+                        var v1 = (IComparable)q.Get(newobject);
+                        var v2 = (IComparable)q.Get(oldrecord);
+                        if ((null==v1&&null!= v2) ||  (null != v1 && v1.CompareTo(v2) != 0))
+                        {
+                            changeddic.Add(p.Name, v1);
+                        }
+                        else
+                        {
+                            // log.DebugFormat("检测值是否改变{0}")
+                        }
                     }
-                    else
-                    {
-                        // log.DebugFormat("检测值是否改变{0}")
-                    }
-                }
-            });
+                });
+            }
             if (changeddic.Count > 0)
             {
-                log.DebugFormat("有{0}项值的改变", changeddic.Count);
                 IValuesChanged<IComparable> ivc = new ValuesChanged<IComparable>(changeddic.Count);
-                lock (lockobj)
+                changeddic.ToList().ForEach(kv =>
                 {
-                    oldrecord = newobject;
-                    changeddic.ToList().ForEach(kv =>
-                    {
                         //var instance = (EventPush.Package.ITagName)Activator.CreateInstance(typeof(SetValuePack<>).MakeGenericType(kv.Value.GetType()));
                         db = new MysqlContext(dbconfigname);
-                        try
-                        {
-                            IValueChanged<IComparable> vc = new ValueChanged<IComparable>();
-                            vc.tagName = db.TagColPairs.First(t => t.colName.Equals(kv.Key)).tagName;
-                            vc.value = kv.Value;
-                            ivc.values.Add(vc);
-                            // instance.tagName = db.TagColPairs.First(t => t.colName.Equals(kv.Key)).tagName;
-                            // new FastReflection.FastProperty(instance.GetType().GetProperty("value")).Set(instance, kv.Value);
-                        }
-                        catch(Exception ex)
-                        {
-                            log.Warn("数据库值改变,创建改变包时失败",ex);
-                            return;
-                        }
-                        finally
-                        {
-                            db.Dispose();
-                        }
-                        
-                    });
-                }//end lock
+                    try
+                    {
+                        IValueChanged<IComparable> vc = new ValueChanged<IComparable>();
+                        vc.tagName = db.TagColPairs.First(t => t.colName.Equals(kv.Key)).tagName;
+                        vc.value = kv.Value;
+                        ivc.values.Add(vc);
+                    }
+                    catch (Exception ex)
+                    {
+                        log.Warn("数据库值改变,创建改变包时失败", ex);
+                        return;
+                    }
+                    finally
+                    {
+                        db.Dispose();
+                    }
+
+                });
+                log.DebugFormat("有{0}项值的改变,改变的包为:{1}", changeddic.Count,ivc.ToString());
                 valueChangedCallback.Invoke(ivc);
             }
         }
@@ -221,7 +228,7 @@ namespace Syncer.EventAction
             }
             catch (Exception ex)
             {
-                log.Warn("发生改变", ex);
+                log.Warn("OpcValuesChanged<>opc发生改变时,更新库失败", ex);
             }
             finally
             {

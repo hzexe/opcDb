@@ -27,7 +27,7 @@ namespace Syncer.EventAction
             DbConfiguration.SetConfiguration(new MySqlEFConfiguration());
             //SetSqlGenerator("MySql.Data.MySqlClient", new MyOwnMySqlMigrationSqlGenerator());
             Database.SetInitializer(new MysqlCreateDatabaseIfNotExists());
-            //Database.SetInitializer(new DropCreateDatabaseAlways<MysqlContext>());
+           // Database.SetInitializer(new DropCreateDatabaseAlways<MysqlContext>());
         }
 
         public MysqlContext(string dbConnctionName)
@@ -50,9 +50,9 @@ namespace Syncer.EventAction
         /// </summary>
         public virtual DbSet<TagColPair> TagColPairs { get; set; }
     }
+    //DropCreateDatabaseIfModelChanges
 
-
-    internal sealed class MysqlCreateDatabaseIfNotExists : CreateDatabaseIfNotExists<MysqlContext>
+    internal sealed class MysqlCreateDatabaseIfNotExists : DropCreateDatabaseIfModelChanges<MysqlContext>
     {
         protected override void Seed(MysqlContext context)
         {
@@ -69,5 +69,7 @@ namespace Syncer.EventAction
             context.SaveChanges();
             base.Seed(context);
         }
+
+       
     }
 }

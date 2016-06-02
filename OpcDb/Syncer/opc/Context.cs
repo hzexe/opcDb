@@ -1,12 +1,12 @@
 ﻿using Syncer.EventPush.Package;
 using Syncer.opc.Pack;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Configuration;
-using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
-using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using WOLEI.WanXiang.Model.ConfigSectionHandler;
 
@@ -28,6 +28,16 @@ namespace Syncer.opc
         /// </summary>
         protected event eh opcConnctionChangedEvent;
         private static readonly log4net.ILog log = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+
+        /// <summary>
+        /// 更新到opc的事务集合
+        /// </summary>
+        private ConcurrentDictionary<int, OpcUpdateResult> updateTransactionIDDic = new ConcurrentDictionary<int, OpcUpdateResult>(6, 10000);
+        /// <summary>
+        /// 更新opc的状态
+        /// </summary>
+        private int transactionID = 0;
+
 
         static Context()
         {
@@ -86,12 +96,12 @@ namespace Syncer.opc
         /// <returns></returns>
         private bool clientChangedValue(Syncer.EventPush.Package.IValuesChanged<IComparable> vsc)
         {
-            log.DebugFormat("数据库值改变需要更改到opc,tagname是{0}个", vsc.values.Count);
+            //log.DebugFormat("数据库值改变需要更改到opc,tagname是{0}个", vsc.values.Count);
             Dictionary<int, object> dic = new Dictionary<int, object>();
             vsc.values.ForEach(vp => {
                 var tag = (from TagConfigElement item in ss.tags where item.name.Equals(vp.tagName) select item).FirstOrDefault();
                 if (null == tag) return;
-                log.DebugFormat("数据库值改变需要更改到opc,tagname是{0},值是{1}", vp.tagName, vp.value);
+                //log.DebugFormat("数据库值改变需要更改到opc,tagname是{0},值是{1}", vp.tagName, vp.value);
                 dic.Add(tag.ServerHandle, vp.value);
             });
             updateDataToOPCServer(dic);
@@ -112,7 +122,29 @@ namespace Syncer.opc
             int a, b;
             a = DateTime.Now.Millisecond;
             b = a;
-            _opcGroup.AsyncWrite(dic.Count, ref ArrServerHandle, ref ArrLocalValue, out ArrError, a, out b);
+
+
+            var opcresult = new OpcUpdateResult(new AutoResetEvent(false));
+            this.updateTransactionIDDic.AddOrUpdate(transactionID, opcresult, (aa, bb) => opcresult);
+            log.DebugFormat("批量更新OPC的值此次更新{0}条数据,更新编号是{1}", dic.Count, transactionID);
+            _opcGroup.AsyncWrite(dic.Count, ref ArrServerHandle, ref ArrLocalValue, out ArrError, transactionID++, out b);
+            //等待更新到opc服务器的更新结果,这里因受DCOM影响,最长时间可能需要6分钟才有结果
+            //但中间有可能存在opc重连接的情况,不能死等因此需要设最大值6分钟,
+            if (opcresult.autoEvent.WaitOne(TimeSpan.FromMinutes(0.2D)))
+            {
+                if (opcresult.result.All(x => x))
+                {
+                    log.DebugFormat("更新OPC的值更新编号{0},结果全部成功", transactionID);
+                }
+                else
+                {
+                    log.FatalFormat("更新OPC的值更新编号{0},有{1}项失败", transactionID, opcresult.result.Count(x => !x));
+                }
+            }else
+            {
+                log.FatalFormat("更新OPC的值更新编号{0},6分钟内结果无反馈", transactionID);
+            }
+            opcresult.Dispose();
         }
 
 
@@ -209,12 +241,51 @@ namespace Syncer.opc
 
         private void _opcGroup_AsyncWriteComplete(int TransactionID, int NumItems, ref Array ClientHandles, ref Array Errors)
         {
-           
+            bool[] result = new bool[NumItems]; //批量更新结果的数组
+            //下标从1开始的
+            for (int i = 1; i <= NumItems; i++)
+            {
+                result[i - 1] = 0 == (int)Errors.GetValue(i);
+            }
+            if (updateTransactionIDDic.ContainsKey(TransactionID))
+            {
+                OpcUpdateResult r;
+                if (updateTransactionIDDic.TryRemove(TransactionID, out r))
+                {
+                    r.result = result;
+                    try
+                    {
+                        r.autoEvent.Set();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        log.Warn("更新opc时超时的信号已销毁,不再可用");
+                    }
+                   
+                }
+                else
+                {
+                    updateTransactionIDDic[TransactionID].result = result;
+                    try
+                    {
+                        updateTransactionIDDic[TransactionID].autoEvent.Set();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        log.Warn("更新opc时超时的信号已销毁,不再可用");
+                    }
+                }
+
+            }
+            else
+            {
+
+            }
         }
 
         protected virtual void _opcGroup_DataChange(int TransactionID, int NumItems, ref Array ClientHandles, ref Array ItemValues, ref Array Qualities, ref Array TimeStamps)
         {
-            log.Info("_opcGroup_DataChange");
+            
             if (NumItems == 0) return;
             ValuesChanged<IComparable> vc = new ValuesChanged<IComparable>();
 
@@ -230,6 +301,7 @@ namespace Syncer.opc
                 vc.values.Add(new ValueChanged<IComparable>() { tagName = opcitem.name, value = (IComparable)value });
             }
             Parallel.ForEach(EventPushList, c => c.OpcValuesChanged(vc));
+            log.InfoFormat("_opcGroup_DataChange,opc值改变:{0}",vc);
         }
 
         protected virtual void _opcGroup_AsyncReadComplete(int TransactionID, int NumItems, ref Array ClientHandles, ref Array ItemValues, ref Array Qualities, ref Array TimeStamps, ref Array Errors)
@@ -254,7 +326,7 @@ namespace Syncer.opc
                     log.Warn("连接OPC服务器，抛出异常", ex);
                 }
                 log.Info("connectOPCAsync  end");
-                var issuccess = OPCServerState.OPCRunning.Equals((OPCServerState)_opcServer.ServerState);
+                var issuccess = OPCServerState.OPCRunning.Equals(_opcServer.ServerState);
 
                 if (issuccess)
                 {
@@ -270,7 +342,7 @@ namespace Syncer.opc
                             catch (System.Runtime.InteropServices.COMException erx)
                             {
                                 opcConnctionChangedEvent.BeginInvoke(this, false, null, null);
-                                log.Warn("检测到工位{0}与OPC的服务连接已断开", erx);
+                                log.Warn("检测到与OPC的服务连接异常断开", erx);
                                 break;
                             }
                             System.Threading.Thread.Sleep(500);
@@ -280,12 +352,11 @@ namespace Syncer.opc
                 }
                 else
                 {
-                    log.Debug("连接OPC服务器失败");
+                    log.Warn("连接OPC服务器失败");
                 }
                 opcConnctionChangedEvent.Invoke(this, issuccess);
                 return issuccess;
             });
-            log.Debug("连接OPC函数退出");
             return r;
         }
     }

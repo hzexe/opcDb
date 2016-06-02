@@ -24,5 +24,15 @@ namespace Syncer.opc.Pack
 
         [DataMember]
         public List<IValueChanged<T>> values { get; set; }
+        /// <summary>
+        /// 已重写
+        /// </summary>
+        /// <returns>序列化成json的字符串</returns>
+        public override string ToString()
+        {
+            //    Newtonsoft.Json
+            // Newtonsoft.Json.
+            return Newtonsoft.Json.JsonConvert.SerializeObject(this);
+        }
     }
 }
