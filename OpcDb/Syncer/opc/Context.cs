@@ -329,7 +329,7 @@ namespace Syncer.opc
                     log.Warn("连接OPC服务器，抛出异常", ex);
                 }
                 log.Info("connectOPCAsync  end");
-                var issuccess = OPCServerState.OPCRunning.Equals(_opcServer.ServerState);
+                var issuccess =((int)OPCAutomation. OPCServerState.OPCRunning).Equals(_opcServer.ServerState);
 
                 if (issuccess)
                 {

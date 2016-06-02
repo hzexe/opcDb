@@ -48,7 +48,6 @@
     <Compile Include="ConfigSectionHandler\OPCTagSection.cs" />
     <Compile Include="opc\Context.cs" />
     <Compile Include="opc\ITag.cs" />
-    <Compile Include="opc\OPCServerState.cs" />
     <Compile Include="opc\OpcUpdateResult.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
