@@ -142,8 +142,9 @@ namespace Syncer.EventAction
 
         public void opcReferenceReady(IOpcReference reference)
         {
+           
             Console.WriteLine("opcReferenceReady");
-
+            if (null != MysqlContext.plcvalue) return;
             TypeBuilder builder = DynamicType.CreateTypeBuilder(
 "EF_DynamicModelAssembly",
 "DynamicModule",
@@ -180,8 +181,8 @@ namespace Syncer.EventAction
             }
             catch (Exception ex)
             {
-                log.Warn("数据变化 操作数据库失败", ex);
-                Console.WriteLine("数据变化 操作数据库失败");
+                log.Warn("opcReferenceReady 操作数据库失败", ex);
+                Console.WriteLine("opcReferenceReady 操作数据库失败");
             }
             finally
             {
